@@ -21,15 +21,33 @@
 
 namespace chip {
 
+namespace app {
+class ThreadNetworkDirectoryStorage;
+namespace Clusters {
+class WiFiNetworkManagementCluster;
+} // namespace Clusters
+} // namespace app
+
 // Publishes a "matter" ubus object exposing this node's onboarding
 // information and local control of the commissioning window, so a router UI
 // can pair the device with a controller without access to the daemon's log.
 class MatterUbusService
 {
 public:
+    using ReloadWifiHandler = void (*)(void * context);
+
     MatterUbusService(ubus::UbusManager & ubusManager) : mUbusManager(ubusManager) {}
 
     CHIP_ERROR Init();
+
+    // Called from the reload_wifi ubus method; procd triggers it on wireless
+    // configuration changes. Must be set before Init().
+    void SetReloadWifiHandler(ReloadWifiHandler handler, void * context);
+
+    // Sources for the sharing state reported by the status method. Must be
+    // set before Init(); pass nullptr to omit the respective fields.
+    void SetWiFiCluster(app::Clusters::WiFiNetworkManagementCluster * cluster);
+    void SetThreadDirectory(app::ThreadNetworkDirectoryStorage * storage);
 
 private:
     ubus::UbusManager & mUbusManager;

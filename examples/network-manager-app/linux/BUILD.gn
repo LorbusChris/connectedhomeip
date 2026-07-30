@@ -40,15 +40,21 @@ executable("matter-network-manager-app") {
     defines += [ "MATTER_ENABLE_UBUS=1" ]
     sources += [
       "MatterUbusService.cpp",
+      "NimDiagnostics.cpp",
+      "NimInstanceInfo.cpp",
       "MatterUbusService.h",
       "ThreadBROpenThreadUbus.cpp",
       "ThreadBROpenThreadUbus.h",
+      "ThreadDiagnosticsUbus.cpp",
+      "ThreadDiagnosticsUbus.h",
       "UboxUtils.cpp",
       "UboxUtils.h",
       "UbusManager.cpp",
       "UbusManager.h",
       "UloopHandler.cpp",
       "UloopHandler.h",
+      "WiFiCredentialsUbus.cpp",
+      "WiFiCredentialsUbus.h",
     ]
     libs += [
       "ubox",
