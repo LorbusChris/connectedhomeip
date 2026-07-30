@@ -46,6 +46,11 @@ public:
 
     CHIP_ERROR Init();
 
+    // Grants the application read access to the underlying storage, e.g. to
+    // enumerate what it recorded. Mutations go through the cluster below, so
+    // that subscribers see them.
+    ThreadNetworkDirectoryStorage & Storage() { return mStorage; }
+
     // Records a network the application knows of its own accord, e.g. the
     // border router's own, replacing any entry with the same Extended PAN ID.
     CHIP_ERROR AddOrUpdateNetwork(const ThreadNetworkDirectoryStorage::ExtendedPanId & extendedPanId, ByteSpan dataset)

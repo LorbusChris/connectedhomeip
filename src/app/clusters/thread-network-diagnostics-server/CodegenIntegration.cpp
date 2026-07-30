@@ -39,10 +39,12 @@ constexpr size_t kThreadNetworkDiagnosticsMaxClusterCount =
 
 LazyRegisteredServerCluster<ThreadNetworkDiagnosticsCluster> gServers[kThreadNetworkDiagnosticsMaxClusterCount];
 
-DirectThreadNetworkDiagnosticsProvider & GetDirectProvider()
+ThreadNetworkDiagnosticsProvider * gProviderOverride = nullptr;
+
+ThreadNetworkDiagnosticsProvider & GetDirectProvider()
 {
     static DirectThreadNetworkDiagnosticsProvider sDirectProvider;
-    return sDirectProvider;
+    return gProviderOverride != nullptr ? *gProviderOverride : static_cast<ThreadNetworkDiagnosticsProvider &>(sDirectProvider);
 }
 
 class IntegrationDelegate : public CodegenClusterIntegration::Delegate
@@ -78,6 +80,15 @@ public:
 };
 
 } // namespace
+
+namespace chip::app::Clusters::ThreadNetworkDiagnostics {
+
+void SetDefaultThreadNetworkDiagnosticsProvider(ThreadNetworkDiagnosticsProvider * provider)
+{
+    gProviderOverride = provider;
+}
+
+} // namespace chip::app::Clusters::ThreadNetworkDiagnostics
 
 void MatterThreadNetworkDiagnosticsClusterInitCallback(EndpointId endpointId)
 {

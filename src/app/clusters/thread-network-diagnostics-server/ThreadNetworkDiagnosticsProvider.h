@@ -31,4 +31,10 @@ public:
     virtual void ResetCounts()                                                                      = 0;
 };
 
+// Overrides the provider used for codegen-integrated cluster instances,
+// for applications whose Thread state lives outside the in-process stack
+// (e.g. in an external border router daemon). Must be called before the
+// endpoints are initialized; passing nullptr restores the default.
+void SetDefaultThreadNetworkDiagnosticsProvider(ThreadNetworkDiagnosticsProvider * provider);
+
 } // namespace chip::app::Clusters::ThreadNetworkDiagnostics

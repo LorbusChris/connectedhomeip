@@ -621,6 +621,16 @@ CHIP_ERROR GetEthInterfaceName(char * ifname, size_t bufSize)
     CHIP_ERROR err          = CHIP_ERROR_READ_FAILED;
     struct ifaddrs * ifaddr = nullptr;
 
+    // On a multi-homed host the first ethtool-capable interface is not
+    // necessarily the one the node actually lives on; a router typically
+    // speaks through a bridge. Let the application name it.
+    const char * configured = getenv("CHIP_ETHERNET_INTERFACE");
+    if (configured != nullptr && if_nametoindex(configured) != 0)
+    {
+        Platform::CopyString(ifname, bufSize, configured);
+        return CHIP_NO_ERROR;
+    }
+
     if (getifaddrs(&ifaddr) == -1)
     {
         ChipLogError(DeviceLayer, "Failed to get network interfaces");
