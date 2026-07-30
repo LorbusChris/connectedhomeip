@@ -27,9 +27,24 @@ namespace chip {
 class OpenThreadUbusBorderRouterDelegate final : public app::Clusters::ThreadBorderRouterManagement::Delegate
 {
 public:
+    using ActiveDatasetObserver = void (*)(void * context, const Thread::OperationalDataset & dataset);
+
     OpenThreadUbusBorderRouterDelegate(ubus::UbusManager & ubusManager) : mUbusManager(ubusManager) {}
 
     CHIP_ERROR Init(AttributeChangeCallback * attributeChangeCallback) override;
+
+    // Called whenever a (non-empty) active dataset is received from otbr,
+    // both for the initial snapshot and for later changes. A snapshot that
+    // arrived before the observer was set is replayed immediately.
+    void SetActiveDatasetObserver(ActiveDatasetObserver observer, void * context)
+    {
+        mDatasetObserver        = observer;
+        mDatasetObserverContext = context;
+        if (observer != nullptr && !mActiveDataset.IsEmpty())
+        {
+            observer(context, mActiveDataset);
+        }
+    }
 
     void GetBorderRouterName(MutableCharSpan & borderRouterName) override;
     CHIP_ERROR GetBorderAgentId(MutableByteSpan & borderAgentId) override;
@@ -59,6 +74,8 @@ private:
     CHIP_ERROR InvokeWithDataset(const char * method, const Thread::OperationalDataset & dataset);
 
     AttributeChangeCallback * mAttributeChangeCallback;
+    ActiveDatasetObserver mDatasetObserver = nullptr;
+    void * mDatasetObserverContext         = nullptr;
 
     ubus::UbusManager & mUbusManager;
     ubus::UbusWatch mOtbr{ "otbr", this };

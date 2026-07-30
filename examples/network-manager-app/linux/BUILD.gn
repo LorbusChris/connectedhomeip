@@ -19,7 +19,7 @@ declare_args() {
   # The operating system this network manager is built for:
   #   "fake"  no OS integration: demo Wi-Fi credentials and an in-memory
   #           Thread border router, for standalone testing
-  #   "ubus"  OpenWrt: otbr-agent and procd over ubus
+  #   "ubus"  OpenWrt: netifd, otbr-agent and procd over ubus
   #   "dbus"  NetworkManager and otbr-agent over D-Bus (not implemented yet)
   matter_nim_backend = "fake"
 
@@ -38,6 +38,10 @@ assert(nim_backend == "fake" || nim_backend == "ubus",
 executable("matter-network-manager-app") {
   sources = [
     "NimBackend.h",
+    "NimDiagnostics.cpp",
+    "NimDiagnostics.h",
+    "NimInstanceInfo.cpp",
+    "NimInstanceInfo.h",
     "include/CHIPProjectAppConfig.h",
     "main.cpp",
   ]
@@ -60,12 +64,16 @@ executable("matter-network-manager-app") {
       "NimBackendUbus.h",
       "ThreadBROpenThreadUbus.cpp",
       "ThreadBROpenThreadUbus.h",
+      "ThreadDiagnosticsUbus.cpp",
+      "ThreadDiagnosticsUbus.h",
       "UboxUtils.cpp",
       "UboxUtils.h",
       "UbusManager.cpp",
       "UbusManager.h",
       "UloopHandler.cpp",
       "UloopHandler.h",
+      "WiFiCredentialsUbus.cpp",
+      "WiFiCredentialsUbus.h",
     ]
     libs += [
       "ubox",

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <lib/support/CodeUtils.h>
 #include <lib/support/CompileTimeString.h>
 #include <lib/support/EnforceFormat.h>
 #include <lib/support/Span.h>
@@ -188,7 +189,14 @@ private:
     struct Deleter
     {
         blob_buf * mBuf;
-        void operator()(void * cookie) { blob_nest_end(mBuf, cookie); }
+        void operator()(void * cookie)
+        {
+            // An add that failed after this nest was opened cleared head to
+            // record the error; closing the nest would dereference it, and
+            // would also mask the error by restoring head.
+            VerifyOrReturn(mBuf->head != nullptr);
+            blob_nest_end(mBuf, cookie);
+        }
     };
 
     std::unique_ptr<void, Deleter> mCookie;

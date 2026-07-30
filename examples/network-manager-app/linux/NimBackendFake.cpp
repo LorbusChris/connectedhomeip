@@ -47,13 +47,21 @@ public:
         return *mDelegate;
     }
 
+    // The fake delegate never reports a dataset of its own: there is no
+    // border router whose network could be recorded in the directory.
+    void SetActiveDatasetObserver(ActiveDatasetObserver observer, void * context) override {}
+
     CHIP_ERROR StartWiFiCredentialSharing(app::Clusters::WiFiNetworkManagementCluster & cluster) override
     {
         return cluster.SetNetworkCredentials(ByteSpan::fromCharSpan("MatterAP"_span),
                                              ByteSpan::fromCharSpan("Setec Astronomy"_span));
     }
 
-    CHIP_ERROR Start() override { return CHIP_NO_ERROR; }
+    CHIP_ERROR Start(app::Clusters::WiFiNetworkManagementCluster * wifi,
+                     app::ThreadNetworkDirectoryStorage * threadDirectory) override
+    {
+        return CHIP_NO_ERROR;
+    }
 
     void Shutdown() override {}
 

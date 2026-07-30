@@ -318,6 +318,10 @@ void OpenThreadUbusBorderRouterDelegate::OnDataReceived(blob_attr * msg, bool no
             {
                 mAttributeChangeCallback->ReportAttributeChanged(ActiveDatasetTimestamp::Id);
             }
+            if (mDatasetObserver != nullptr && !mActiveDataset.IsEmpty())
+            {
+                mDatasetObserver(mDatasetObserverContext, mActiveDataset);
+            }
         }
     }
 

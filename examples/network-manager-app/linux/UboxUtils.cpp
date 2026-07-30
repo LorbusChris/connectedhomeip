@@ -53,7 +53,8 @@ bool BlobMsgBuf::AddFormat(const char * name, const char * format, ...)
     va_start(args, format);
     int status = blobmsg_vprintf(this, name, format, args);
     va_end(args);
-    return Check(status);
+    // blobmsg_vprintf returns the formatted length, not 0, on success.
+    return Check(status >= 0 ? 0 : status);
 }
 
 } // namespace ubus
