@@ -200,6 +200,7 @@ static void ApplicationEarlyInit()
     if (gPrimaryInterface != nullptr)
     {
         NimDiagnosticsProvider::Instance().SetPrimaryInterface(gPrimaryInterface);
+        NimDiagnosticsProvider::Instance().Init();
         DeviceLayer::SetDiagnosticDataProvider(&NimDiagnosticsProvider::Instance());
     }
 
