@@ -17,19 +17,126 @@
 
 #include "NimDiagnostics.h"
 
+#include <lib/support/CodeUtils.h>
+#include <platform/KeyValueStoreManager.h>
+
 #include <cstdio>
 #include <cstring>
 #include <sys/sysinfo.h>
 
 namespace chip {
 
+using DeviceLayer::BootReasonType;
 using DeviceLayer::NetworkInterface;
 using InterfaceType = app::Clusters::GeneralDiagnostics::InterfaceTypeEnum;
+
+namespace {
+
+// A UUID the kernel generates once per boot. Comparing it against the one
+// seen last is the only portable way to tell a reboot of the router from a
+// restart of this daemon.
+constexpr char kBootIdPath[]    = "/proc/sys/kernel/random/boot_id";
+constexpr char kBootIdKey[]     = "nim/boot-id";
+constexpr char kRebootKey[]     = "nim/reboot-count";
+constexpr char kBootReasonKey[] = "nim/boot-reason";
+constexpr size_t kBootIdSize    = 36; // canonical UUID text, no terminator
+
+// Set by the driver when the last reset came from the watchdog. Boards that
+// cannot tell report zero, which stays "unspecified" rather than a guess.
+constexpr char kWatchdogBootStatus[] = "/sys/class/watchdog/watchdog0/bootstatus";
+constexpr long kWatchdogCardReset    = 0x0020; // WDIOF_CARDRESET
+
+// In EthCounter order.
+constexpr const char * kCounterFiles[] = {
+    "statistics/rx_packets", "statistics/tx_packets", "statistics/tx_errors", "statistics/collisions", "statistics/rx_over_errors",
+};
+
+bool ReadFileBytes(const char * path, char * buffer, size_t size)
+{
+    FILE * fp = fopen(path, "r");
+    VerifyOrReturnValue(fp != nullptr, false);
+    size_t read = fread(buffer, 1, size, fp);
+    fclose(fp);
+    return read == size;
+}
+
+bool ReadFileNumber(const char * path, long & value)
+{
+    FILE * fp = fopen(path, "r");
+    VerifyOrReturnValue(fp != nullptr, false);
+    int matched = fscanf(fp, "%ld", &value);
+    fclose(fp);
+    return matched == 1;
+}
+
+} // namespace
 
 NimDiagnosticsProvider & NimDiagnosticsProvider::Instance()
 {
     static NimDiagnosticsProvider sInstance;
     return sInstance;
+}
+
+uint64_t NimDiagnosticsProvider::Uptime()
+{
+    struct sysinfo info;
+    VerifyOrReturnValue(sysinfo(&info) == 0, 0);
+    return static_cast<uint64_t>(info.uptime);
+}
+
+void NimDiagnosticsProvider::Init()
+{
+    auto & kvs = DeviceLayer::PersistedStorage::KeyValueStoreMgr();
+
+    char bootId[kBootIdSize] = {};
+    const bool haveBootId    = ReadFileBytes(kBootIdPath, bootId, sizeof(bootId));
+
+    char storedId[kBootIdSize] = {};
+    size_t storedSize          = 0;
+    const bool sameBoot        = haveBootId && kvs.Get(kBootIdKey, storedId, sizeof(storedId), &storedSize) == CHIP_NO_ERROR &&
+        storedSize == sizeof(storedId) && memcmp(bootId, storedId, sizeof(bootId)) == 0;
+
+    uint16_t count = 0;
+    (void) kvs.Get(kRebootKey, &count);
+    uint8_t reason = static_cast<uint8_t>(BootReasonType::kUnspecified);
+    (void) kvs.Get(kBootReasonKey, &reason);
+
+    if (!sameBoot)
+    {
+        // The host has booted since this daemon last ran, so this is a
+        // reboot in the sense the cluster means. Saturate rather than wrap:
+        // a counter that rolls over to zero reads as a factory reset.
+        if (count < UINT16_MAX)
+        {
+            count++;
+        }
+
+        long status              = 0;
+        const bool watchdogReset = ReadFileNumber(kWatchdogBootStatus, status) && (status & kWatchdogCardReset) != 0;
+        reason = static_cast<uint8_t>(watchdogReset ? BootReasonType::kHardwareWatchdogReset : BootReasonType::kUnspecified);
+
+        (void) kvs.Put(kRebootKey, count);
+        (void) kvs.Put(kBootReasonKey, reason);
+        if (haveBootId)
+        {
+            (void) kvs.Put(kBootIdKey, bootId, sizeof(bootId));
+        }
+    }
+
+    mRebootCount = count;
+    mBootReason  = static_cast<BootReasonType>(reason);
+}
+
+CHIP_ERROR NimDiagnosticsProvider::GetRebootCount(uint16_t & rebootCount)
+{
+    rebootCount = mRebootCount;
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR NimDiagnosticsProvider::GetBootReason(BootReasonType & bootReason)
+{
+    bootReason = mBootReason;
+    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR NimDiagnosticsProvider::GetNetworkInterfaces(NetworkInterface ** netifpp)
@@ -76,10 +183,9 @@ CHIP_ERROR NimDiagnosticsProvider::GetNetworkInterfaces(NetworkInterface ** neti
     return CHIP_NO_ERROR;
 }
 
-
 CHIP_ERROR NimDiagnosticsProvider::ReadSysfs(const char * file, long long & value) const
 {
-    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_READ_FAILED);
+    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
     char path[128];
     snprintf(path, sizeof(path), "/sys/class/net/%s/%s", DiagnosticsInterface(), file);
     FILE * fp = fopen(path, "r");
@@ -123,7 +229,7 @@ CHIP_ERROR NimDiagnosticsProvider::GetEthPHYRate(app::Clusters::EthernetNetworkD
 
 CHIP_ERROR NimDiagnosticsProvider::GetEthFullDuplex(bool & fullDuplex)
 {
-    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_READ_FAILED);
+    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
     char path[128];
     snprintf(path, sizeof(path), "/sys/class/net/%s/duplex", DiagnosticsInterface());
     FILE * fp = fopen(path, "r");
@@ -156,53 +262,68 @@ CHIP_ERROR NimDiagnosticsProvider::GetEthCarrierDetect(bool & carrierDetect)
     return CHIP_NO_ERROR;
 }
 
+CHIP_ERROR NimDiagnosticsProvider::ReadCounter(EthCounter counter, uint64_t & value) const
+{
+    const size_t index = static_cast<size_t>(counter);
+
+    long long raw = 0;
+    VerifyOrReturnError(ReadSysfs(kCounterFiles[index], raw) == CHIP_NO_ERROR, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
+
+    // The interface can be recreated under the same name, taking its
+    // counters back to zero; a baseline above the reading then means the
+    // count since the reset is all of it.
+    const uint64_t current = static_cast<uint64_t>(raw);
+    value                  = current >= mBaseline[index] ? current - mBaseline[index] : current;
+    return CHIP_NO_ERROR;
+}
+
 CHIP_ERROR NimDiagnosticsProvider::GetEthPacketRxCount(uint64_t & packetRxCount)
 {
-    long long value = 0;
-    ReturnErrorOnFailure(ReadSysfs("statistics/rx_packets", value));
-    packetRxCount = static_cast<uint64_t>(value);
-    return CHIP_NO_ERROR;
+    return ReadCounter(EthCounter::kPacketRx, packetRxCount);
 }
 
 CHIP_ERROR NimDiagnosticsProvider::GetEthPacketTxCount(uint64_t & packetTxCount)
 {
-    long long value = 0;
-    ReturnErrorOnFailure(ReadSysfs("statistics/tx_packets", value));
-    packetTxCount = static_cast<uint64_t>(value);
-    return CHIP_NO_ERROR;
+    return ReadCounter(EthCounter::kPacketTx, packetTxCount);
 }
 
 CHIP_ERROR NimDiagnosticsProvider::GetEthTxErrCount(uint64_t & txErrCount)
 {
-    long long value = 0;
-    ReturnErrorOnFailure(ReadSysfs("statistics/tx_errors", value));
-    txErrCount = static_cast<uint64_t>(value);
-    return CHIP_NO_ERROR;
+    return ReadCounter(EthCounter::kTxErr, txErrCount);
 }
 
 CHIP_ERROR NimDiagnosticsProvider::GetEthCollisionCount(uint64_t & collisionCount)
 {
-    long long value = 0;
-    ReturnErrorOnFailure(ReadSysfs("statistics/collisions", value));
-    collisionCount = static_cast<uint64_t>(value);
-    return CHIP_NO_ERROR;
+    return ReadCounter(EthCounter::kCollision, collisionCount);
 }
 
 CHIP_ERROR NimDiagnosticsProvider::GetEthOverrunCount(uint64_t & overrunCount)
 {
-    long long value = 0;
-    ReturnErrorOnFailure(ReadSysfs("statistics/rx_over_errors", value));
-    overrunCount = static_cast<uint64_t>(value);
-    return CHIP_NO_ERROR;
+    return ReadCounter(EthCounter::kOverrun, overrunCount);
 }
 
 CHIP_ERROR NimDiagnosticsProvider::GetEthTimeSinceReset(uint64_t & timeSinceReset)
 {
-    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_READ_FAILED);
-    // The sysfs counters count from boot, so that is when they were reset.
-    struct sysinfo info;
-    VerifyOrReturnError(sysinfo(&info) == 0, CHIP_ERROR_READ_FAILED);
-    timeSinceReset = static_cast<uint64_t>(info.uptime);
+    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
+    // The sysfs counters run from boot, so that is when they last stood at
+    // zero, unless ResetCounts has moved the baseline since.
+    const uint64_t uptime = Uptime();
+    timeSinceReset        = uptime >= mResetUptime ? uptime - mResetUptime : uptime;
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR NimDiagnosticsProvider::ResetEthNetworkDiagnosticsCounts()
+{
+    VerifyOrReturnError(mEthernetDiagnostics, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
+
+    // The kernel counters belong to the whole system and cannot be zeroed
+    // from here, so record where they stand and report the difference.
+    for (size_t index = 0; index < kEthCounterCount; index++)
+    {
+        long long raw    = 0;
+        mBaseline[index] = (ReadSysfs(kCounterFiles[index], raw) == CHIP_NO_ERROR) ? static_cast<uint64_t>(raw) : 0;
+    }
+    mResetUptime = Uptime();
     return CHIP_NO_ERROR;
 }
 
