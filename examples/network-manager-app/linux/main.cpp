@@ -55,7 +55,8 @@ constexpr int kOptionPrimaryIface = 0x1002;
 constexpr int kOptionVendorName   = 0x1003;
 constexpr int kOptionDiagIface    = 0x1004;
 constexpr int kOptionNoEthDiag    = 0x1005;
-static_assert(kOptionNoEthDiag < NimBackend::kFirstOptionId, "option identifiers collide with the backend's");
+constexpr int kOptionProductName  = 0x1006;
+static_assert(kOptionProductName < NimBackend::kFirstOptionId, "option identifiers collide with the backend's");
 
 bool HandleAppOption(const char * program, ArgParser::OptionSet * options, int identifier, const char * name, const char * value)
 {
@@ -69,6 +70,9 @@ bool HandleAppOption(const char * program, ArgParser::OptionSet * options, int i
         return true;
     case kOptionVendorName:
         NimInstanceInfoProvider::Instance().SetVendorName(value);
+        return true;
+    case kOptionProductName:
+        NimInstanceInfoProvider::Instance().SetProductName(value);
         return true;
     case kOptionDiagIface:
         NimDiagnosticsProvider::Instance().SetDiagnosticsInterface(value);
@@ -85,6 +89,7 @@ const ArgParser::OptionDef sCommonOptionDefs[] = {
     { "no-thread", ArgParser::kNoArgument, kOptionNoThread },
     { "primary-interface", ArgParser::kArgumentRequired, kOptionPrimaryIface },
     { "vendor-name", ArgParser::kArgumentRequired, kOptionVendorName },
+    { "product-name", ArgParser::kArgumentRequired, kOptionProductName },
     { "diagnostics-interface", ArgParser::kArgumentRequired, kOptionDiagIface },
     { "no-ethernet-diagnostics", ArgParser::kNoArgument, kOptionNoEthDiag },
     {},
@@ -98,6 +103,9 @@ const char sCommonOptionHelp[] = "  --no-thread\n"
                                  "  --vendor-name <name>\n"
                                  "       Manufacturer reported in Basic Information, overriding the\n"
                                  "       one the firmware states in /etc/os-release.\n"
+                                 "  --product-name <name>\n"
+                                 "       Product reported in Basic Information, overriding the\n"
+                                 "       distribution name from /etc/os-release.\n"
                                  "  --diagnostics-interface <name>\n"
                                  "       Feed the Ethernet diagnostics from this interface instead of\n"
                                  "       the primary one.\n"
@@ -292,7 +300,10 @@ int main(int argc, char * argv[])
 
     // The parser runs inside ChipLinuxAppInit, after which the stack has
     // already cached its ethernet interface, so the command line is scanned
-    // for the primary interface ahead of it.
+    // for the primary interface ahead of it. Overwritten rather than
+    // defaulted: the diagnostics this node reports are taken from
+    // gPrimaryInterface, and an interface inherited from the environment
+    // would make the platform describe a different one.
     for (int i = 1; i + 1 < argc; i++)
     {
         if (strcmp(argv[i], "--primary-interface") == 0)
@@ -302,7 +313,7 @@ int main(int argc, char * argv[])
     }
     if (gPrimaryInterface != nullptr)
     {
-        setenv("CHIP_ETHERNET_INTERFACE", gPrimaryInterface, 0);
+        setenv("CHIP_ETHERNET_INTERFACE", gPrimaryInterface, 1);
     }
 
     VerifyOrReturnValue(ChipLinuxAppInit(argc, argv, &sAppOptions) == 0, -1);
