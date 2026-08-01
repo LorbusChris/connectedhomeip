@@ -69,6 +69,12 @@ private:
     void OnDataReceived(blob_attr * msg, bool notification);
     CHIP_ERROR SubmitDeprovision();
     void ResyncFromOtbr();
+    // otbr-agent went away: nothing cached from it describes the present any
+    // more, so it is dropped rather than kept being reported as current.
+    void OnOtbrLost();
+    // Reads the Thread version otbr was built against. Asked once, when otbr
+    // appears; the answer cannot change while it is running.
+    void FetchThreadVersion();
 
     // Invokes an otbr method that takes a hex encoded dataset argument.
     CHIP_ERROR InvokeWithDataset(const char * method, const Thread::OperationalDataset & dataset);
@@ -82,6 +88,13 @@ private:
 
     bool mBorderAgentIDValid = false;
     uint8_t mBorderAgentID[app::Clusters::ThreadBorderRouterManagement::kBorderAgentIdLength];
+
+    // The IEEE 802.15.4 interface is up unless otbr reports the disabled
+    // role, which is what threadstop leaves behind. Without otbr there is no
+    // interface to speak of.
+    bool mInterfaceEnabled = false;
+    // Thread version code as otbr reports it; 0 until it has been asked.
+    uint16_t mThreadVersion = 0;
 
     Thread::OperationalDataset mActiveDataset;
     Thread::OperationalDataset mPendingDataset;

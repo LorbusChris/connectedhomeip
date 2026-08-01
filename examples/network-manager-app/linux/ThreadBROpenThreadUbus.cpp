@@ -27,6 +27,8 @@
 
 #include <libubus.h>
 #include <optional>
+#include <string.h>
+#include <unistd.h>
 
 using namespace chip::ubus;
 using namespace chip::app::Clusters::ThreadBorderRouterManagement::Attributes;
@@ -59,16 +61,70 @@ CHIP_ERROR OpenThreadUbusBorderRouterDelegate::Init(AttributeChangeCallback * at
         {
             self->mRevertPending = false;
         }
+        self->FetchThreadVersion();
     });
     mOtbr.SetNotificationCallback([](UbusWatch & watch, void * appState, ubus_request_data * req, const char * notification,
                                      blob_attr * msg) { static_cast<decltype(this)>(appState)->OnDataReceived(msg, true); });
+    mOtbr.SetLostCallback([](UbusWatch & watch, void * appState) { static_cast<decltype(this)>(appState)->OnOtbrLost(); });
     mUbusManager.Register(mOtbr);
 
     return CHIP_NO_ERROR;
 }
 
+void OpenThreadUbusBorderRouterDelegate::OnOtbrLost()
+{
+    const bool hadActive  = !mActiveDataset.IsEmpty();
+    const bool hadPending = !mPendingDataset.IsEmpty();
+
+    // The border agent id, the datasets and the interface state were all read
+    // from otbr. With it gone none of them can be confirmed, and a controller
+    // reading a network that is no longer being served is worse served than
+    // one reading nothing.
+    mBorderAgentIDValid = false;
+    mInterfaceEnabled   = false;
+    mActiveDataset.Clear();
+    mPendingDataset.Clear();
+
+    if (hadActive)
+    {
+        mAttributeChangeCallback->ReportAttributeChanged(ActiveDatasetTimestamp::Id);
+    }
+    if (hadPending)
+    {
+        mAttributeChangeCallback->ReportAttributeChanged(PendingDatasetTimestamp::Id);
+    }
+
+    // An activation waiting on a provision reply will never get one.
+    if (auto * callback = mActivateDatasetCallback)
+    {
+        mActivateDatasetCallback = nullptr;
+        mActivationPending       = false;
+        callback->OnActivateDatasetComplete(mActivateDatasetSequence, CHIP_ERROR_NOT_CONNECTED);
+    }
+}
+
+void OpenThreadUbusBorderRouterDelegate::FetchThreadVersion()
+{
+    VerifyOrReturn(mOtbr.Resolved());
+    ubus_invoke(&mUbusManager.Context(), mOtbr.ObjectID(), "version", nullptr, ([](ubus_request * req, int type, blob_attr * msg) {
+        BlobMsgField<uint16_t, CHIP_CTST("ThreadVersionCode")> version;
+        VerifyOrReturn(BlobMsgParse(msg, version) && version.has_value());
+        *static_cast<uint16_t *>(req->priv) = version.value();
+    }),
+                &mThreadVersion, kInvokeTimeout);
+}
+
 void OpenThreadUbusBorderRouterDelegate::GetBorderRouterName(MutableCharSpan & borderRouterName)
 {
+    // Every unit reporting the same literal makes a mesh with more than one
+    // border router unreadable. The host name is what the administrator chose
+    // and what otbr already advertises this router as over mDNS.
+    char hostName[app::Clusters::ThreadBorderRouterManagement::kBorderRouterNameMaxLength + 1] = {};
+    if (gethostname(hostName, sizeof(hostName) - 1) == 0 && hostName[0] != '\0')
+    {
+        CopyCharSpanToMutableCharSpanWithTruncation(CharSpan::fromCharString(hostName), borderRouterName);
+        return;
+    }
     CopyCharSpanToMutableCharSpanWithTruncation("OpenThread BorderRouter"_span, borderRouterName);
 }
 
@@ -79,12 +135,15 @@ CHIP_ERROR OpenThreadUbusBorderRouterDelegate::GetBorderAgentId(MutableByteSpan 
 
 uint16_t OpenThreadUbusBorderRouterDelegate::GetThreadVersion()
 {
-    return /* Thread 1.4.0 */ 5;
+    // Asked of otbr when it appeared. The attribute is mandatory and has no
+    // null, so before the first answer say Thread 1.4, which is the oldest
+    // version whose border router carries the ubus API this delegate needs.
+    return mThreadVersion != 0 ? mThreadVersion : /* Thread 1.4.0 */ 5;
 }
 
 bool OpenThreadUbusBorderRouterDelegate::GetInterfaceEnabled()
 {
-    return !mActiveDataset.IsEmpty();
+    return mInterfaceEnabled;
 }
 
 CHIP_ERROR OpenThreadUbusBorderRouterDelegate::GetDataset(Thread::OperationalDataset & dataset, DatasetType type)
@@ -297,7 +356,16 @@ void OpenThreadUbusBorderRouterDelegate::OnDataReceived(blob_attr * msg, bool no
     BlobMsgField<ByteSpan, CHIP_CTST("ActiveDataset")> activeDataset;
     BlobMsgField<ByteSpan, CHIP_CTST("PendingDataset")> pendingDataset;
     BlobMsgField<bool, CHIP_CTST("Attached")> attached;
-    BlobMsgParse(msg, borderAgentID, attached, activeDataset, pendingDataset);
+    BlobMsgField<const char *, CHIP_CTST("DeviceRole")> deviceRole;
+    BlobMsgParse(msg, borderAgentID, attached, activeDataset, pendingDataset, deviceRole);
+
+    if (deviceRole.has_value())
+    {
+        // The role otbr reports for a stopped interface. A configured dataset
+        // says nothing about whether the radio is running: threadstop leaves
+        // the dataset in place.
+        mInterfaceEnabled = (strcmp(deviceRole.value(), "disabled") != 0);
+    }
 
     if (!mBorderAgentIDValid && borderAgentID.has_value() && borderAgentID->size() == sizeof(mBorderAgentID))
     {

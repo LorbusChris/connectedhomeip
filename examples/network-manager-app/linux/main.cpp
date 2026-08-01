@@ -67,14 +67,15 @@ bool gThreadManaged            = true;
 // and the identity the ethernet layers pick on this multi-homed host.
 const char * gPrimaryInterface = "br-lan";
 
-constexpr uint16_t kOptionWifiNetwork = 0x1001;
-constexpr uint16_t kOptionWifiIface   = 0x1002;
-constexpr uint16_t kOptionNoWifiShare = 0x1003;
-constexpr uint16_t kOptionNoThread    = 0x1004;
+constexpr uint16_t kOptionWifiNetwork  = 0x1001;
+constexpr uint16_t kOptionWifiIface    = 0x1002;
+constexpr uint16_t kOptionNoWifiShare  = 0x1003;
+constexpr uint16_t kOptionNoThread     = 0x1004;
 constexpr uint16_t kOptionPrimaryIface = 0x1005;
 constexpr uint16_t kOptionVendorName   = 0x1006;
 constexpr uint16_t kOptionDiagIface    = 0x1007;
 constexpr uint16_t kOptionNoEthDiag    = 0x1008;
+constexpr uint16_t kOptionProductName  = 0x1009;
 
 bool HandleAppOption(const char * program, ArgParser::OptionSet * options, int identifier, const char * name, const char * value)
 {
@@ -100,6 +101,9 @@ bool HandleAppOption(const char * program, ArgParser::OptionSet * options, int i
     case kOptionVendorName:
         NimInstanceInfoProvider::Instance().SetVendorName(value);
         return true;
+    case kOptionProductName:
+        NimInstanceInfoProvider::Instance().SetProductName(value);
+        return true;
     case kOptionDiagIface:
         NimDiagnosticsProvider::Instance().SetDiagnosticsInterface(value);
         return true;
@@ -118,6 +122,7 @@ ArgParser::OptionDef sAppOptionDefs[] = {
     { "no-thread", ArgParser::kNoArgument, kOptionNoThread },
     { "primary-interface", ArgParser::kArgumentRequired, kOptionPrimaryIface },
     { "vendor-name", ArgParser::kArgumentRequired, kOptionVendorName },
+    { "product-name", ArgParser::kArgumentRequired, kOptionProductName },
     { "diagnostics-interface", ArgParser::kArgumentRequired, kOptionDiagIface },
     { "no-ethernet-diagnostics", ArgParser::kNoArgument, kOptionNoEthDiag },
     {},
@@ -139,6 +144,9 @@ const char sAppOptionHelp[] = "  --wifi-network <name>\n"
                               "  --vendor-name <name>\n"
                               "       Manufacturer reported in Basic Information, overriding the\n"
                               "       one the firmware states in /etc/os-release.\n"
+                              "  --product-name <name>\n"
+                              "       Product reported in Basic Information, overriding the\n"
+                              "       distribution name from /etc/os-release.\n"
                               "  --diagnostics-interface <name>\n"
                               "       Feed the Ethernet diagnostics from this interface instead of\n"
                               "       the primary one.\n"
@@ -211,6 +219,7 @@ static void ApplicationEarlyInit()
 {
 #if MATTER_ENABLE_UBUS
     NimDiagnosticsProvider::Instance().SetPrimaryInterface(gPrimaryInterface);
+    NimDiagnosticsProvider::Instance().Init();
     DeviceLayer::SetDiagnosticDataProvider(&NimDiagnosticsProvider::Instance());
     NimInstanceInfoProvider::Instance().Init();
 #endif
@@ -338,9 +347,12 @@ void ApplicationShutdown()
 int main(int argc, char * argv[])
 {
 #if MATTER_ENABLE_UBUS
-    // Must be in place before the stack caches its ethernet interface;
-    // --primary-interface overrides it during argument parsing.
-    setenv("CHIP_ETHERNET_INTERFACE", gPrimaryInterface, 0);
+    // Must be in place before the stack caches its ethernet interface.
+    // Overwritten rather than defaulted: the diagnostics this node reports
+    // are taken from gPrimaryInterface, and an interface inherited from the
+    // environment would make the platform describe a different one.
+    // --primary-interface sets both, during argument parsing.
+    setenv("CHIP_ETHERNET_INTERFACE", gPrimaryInterface, 1);
     VerifyOrReturnValue(ChipLinuxAppInit(argc, argv, &sAppOptions) == 0, -1);
 #else
     VerifyOrReturnValue(ChipLinuxAppInit(argc, argv) == 0, -1);

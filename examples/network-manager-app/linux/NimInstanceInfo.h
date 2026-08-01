@@ -40,6 +40,9 @@ public:
     // Overrides the firmware's manufacturer string (uci option).
     void SetVendorName(const char * name) { mVendorName = name; }
 
+    // Overrides the firmware's distribution name (uci option).
+    void SetProductName(const char * name) { mProductName = name; }
+
     CHIP_ERROR GetVendorName(char * buf, size_t bufSize) override;
     CHIP_ERROR GetVendorId(uint16_t & vendorId) override;
     CHIP_ERROR GetProductName(char * buf, size_t bufSize) override;
@@ -59,6 +62,7 @@ private:
 
     DeviceLayer::DeviceInstanceInfoProvider * mFallback = nullptr;
     std::string mVendorName;
+    std::string mProductName;
     std::string mProductUrl;
     std::string mHardware;
 };

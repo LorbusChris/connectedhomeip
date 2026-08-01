@@ -75,6 +75,13 @@ void NimInstanceInfoProvider::Init()
     {
         mVendorName = OsReleaseField("OPENWRT_DEVICE_MANUFACTURER");
     }
+    // The product this daemon is part of is the firmware distribution, which
+    // is what a controller can meaningfully name: "OpenWrt", "TurrisOS". The
+    // board it runs on is reported separately as the hardware version.
+    if (mProductName.empty())
+    {
+        mProductName = OsReleaseField("NAME");
+    }
     mProductUrl = OsReleaseField("OPENWRT_DEVICE_MANUFACTURER_URL");
 
     // The device the firmware runs on, with its revision when the firmware
@@ -103,9 +110,8 @@ void NimInstanceInfoProvider::Init()
     DeviceLayer::SetDeviceInstanceInfoProvider(this);
 }
 
-CHIP_ERROR NimInstanceInfoProvider::CopyOrDelegate(
-    const std::string & value, char * buf, size_t bufSize,
-    CHIP_ERROR (DeviceLayer::DeviceInstanceInfoProvider::*fallback)(char *, size_t))
+CHIP_ERROR NimInstanceInfoProvider::CopyOrDelegate(const std::string & value, char * buf, size_t bufSize,
+                                                   CHIP_ERROR (DeviceLayer::DeviceInstanceInfoProvider::*fallback)(char *, size_t))
 {
     if (!value.empty())
     {
@@ -139,7 +145,7 @@ CHIP_ERROR NimInstanceInfoProvider::GetVendorId(uint16_t & vendorId)
 
 CHIP_ERROR NimInstanceInfoProvider::GetProductName(char * buf, size_t bufSize)
 {
-    return mFallback->GetProductName(buf, bufSize);
+    return CopyOrDelegate(mProductName, buf, bufSize, &DeviceLayer::DeviceInstanceInfoProvider::GetProductName);
 }
 
 CHIP_ERROR NimInstanceInfoProvider::GetProductId(uint16_t & productId)
