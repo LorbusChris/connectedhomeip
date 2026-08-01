@@ -41,7 +41,9 @@ executable("matter-network-manager-app") {
     sources += [
       "MatterUbusService.cpp",
       "NimDiagnostics.cpp",
+      "NimDiagnostics.h",
       "NimInstanceInfo.cpp",
+      "NimInstanceInfo.h",
       "MatterUbusService.h",
       "ThreadBROpenThreadUbus.cpp",
       "ThreadBROpenThreadUbus.h",

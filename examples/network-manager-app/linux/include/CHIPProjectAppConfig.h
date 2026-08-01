@@ -29,6 +29,19 @@
 // Sufficient space for ArlReviewEvent of several fabrics.
 #define CHIP_DEVICE_CONFIG_EVENT_LOGGING_INFO_BUFFER_SIZE (32 * 1024)
 
+// The passcode is generated once and kept for the life of the device, and the
+// system log outlives commissioning by a long way. The operator reads the code
+// from the administration interface instead, which the matter ubus object
+// serves from its status method.
+#define CHIP_DEVICE_CONFIG_LOG_ONBOARDING_PAYLOAD 0
+
+// config/standalone turns this on for every standalone build, on the reasoning
+// that standalone means a host and not a device. This one runs on a router, so
+// take the device behaviour: among other things the flag drops the range check
+// in Encode() for Nullable<>, which would let an out-of-range value go out on
+// the wire where the specification requires CONSTRAINT_ERROR.
+#define CONFIG_BUILD_FOR_HOST_UNIT_TEST 0
+
 #ifndef MATTER_ENABLE_UBUS
 #define MATTER_ENABLE_UBUS 0
 #endif
