@@ -33,14 +33,16 @@ public:
 
     CHIP_ERROR Init(AttributeChangeCallback * attributeChangeCallback) override;
 
-    // Called whenever a (non-empty) active dataset is received from otbr,
-    // both for the initial snapshot and for later changes. A snapshot that
-    // arrived before the observer was set is replayed immediately.
+    // Called whenever otbr states the active dataset, both for the initial
+    // snapshot and for later changes, and including the empty dataset that
+    // means the node is no longer on a network. A snapshot that arrived
+    // before the observer was set is replayed immediately; nothing is
+    // reported before otbr has said anything at all.
     void SetActiveDatasetObserver(ActiveDatasetObserver observer, void * context)
     {
         mDatasetObserver        = observer;
         mDatasetObserverContext = context;
-        if (observer != nullptr && !mActiveDataset.IsEmpty())
+        if (observer != nullptr && mActiveDatasetKnown)
         {
             observer(context, mActiveDataset);
         }
@@ -95,6 +97,10 @@ private:
     bool mInterfaceEnabled = false;
     // Thread version code as otbr reports it; 0 until it has been asked.
     uint16_t mThreadVersion = 0;
+
+    // Whether otbr has stated the active dataset at all. An empty dataset is
+    // a statement ("no network"); never having heard one is not.
+    bool mActiveDatasetKnown = false;
 
     Thread::OperationalDataset mActiveDataset;
     Thread::OperationalDataset mPendingDataset;

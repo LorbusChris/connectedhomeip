@@ -82,6 +82,7 @@ void OpenThreadUbusBorderRouterDelegate::OnOtbrLost()
     // one reading nothing.
     mBorderAgentIDValid = false;
     mInterfaceEnabled   = false;
+    mActiveDatasetKnown = false;
     mActiveDataset.Clear();
     mPendingDataset.Clear();
 
@@ -376,17 +377,30 @@ void OpenThreadUbusBorderRouterDelegate::OnDataReceived(blob_attr * msg, bool no
 
     if (activeDataset.has_value())
     {
+        // An empty payload is otbr saying there is no network — after a
+        // deprovision, or before the first one. That is as much a statement
+        // about the active dataset as a populated one, and the observer needs
+        // it: a network this node has left is one it cannot let anyone join.
         Thread::OperationalDatasetView dataset;
-        if (dataset.Init(activeDataset.value()) == CHIP_NO_ERROR)
+        const bool empty = activeDataset->empty();
+        if (empty || dataset.Init(activeDataset.value()) == CHIP_NO_ERROR)
         {
             ChipLogProgress(AppServer, "Received OTBR ActiveDataset (size = %lu)",
                             static_cast<unsigned long>(activeDataset->size()));
-            mActiveDataset = dataset;
+            if (empty)
+            {
+                mActiveDataset.Clear();
+            }
+            else
+            {
+                mActiveDataset = dataset;
+            }
+            mActiveDatasetKnown = true;
             if (notification)
             {
                 mAttributeChangeCallback->ReportAttributeChanged(ActiveDatasetTimestamp::Id);
             }
-            if (mDatasetObserver != nullptr && !mActiveDataset.IsEmpty())
+            if (mDatasetObserver != nullptr)
             {
                 mDatasetObserver(mDatasetObserverContext, mActiveDataset);
             }
