@@ -45,11 +45,15 @@ public:
 
 private:
     void OnDataReceived(blob_attr * msg);
+    // otbr-agent went away: what was cached describes a network this node is
+    // no longer known to be on, so it is dropped rather than kept reporting.
+    void OnOtbrLost();
 
     CHIP_ERROR EncodeFromDataset(AttributeId attributeId, app::AttributeValueEncoder & encoder);
     CHIP_ERROR EncodeLeaderData(AttributeId attributeId, app::AttributeValueEncoder & encoder);
     CHIP_ERROR EncodeRloc16(app::AttributeValueEncoder & encoder);
     CHIP_ERROR EncodeNeighborTable(app::AttributeValueEncoder & encoder);
+    CHIP_ERROR EncodeRouteTable(app::AttributeValueEncoder & encoder);
 
     ubus::UbusManager & mUbusManager;
     ubus::UbusWatch mOtbr{ "otbr", this };
