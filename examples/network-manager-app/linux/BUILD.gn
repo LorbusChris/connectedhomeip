@@ -16,12 +16,28 @@ import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
 
 declare_args() {
-  # Enable OpenWrt ubus integration
+  # The operating system this network manager is built for:
+  #   "fake"  no OS integration: demo Wi-Fi credentials and an in-memory
+  #           Thread border router, for standalone testing
+  #   "ubus"  OpenWrt: otbr-agent and procd over ubus
+  #   "dbus"  NetworkManager and otbr-agent over D-Bus (not implemented yet)
+  matter_nim_backend = "fake"
+
+  # Deprecated: the same as matter_nim_backend = "ubus".
   matter_enable_ubus = false
 }
 
+nim_backend = matter_nim_backend
+if (matter_enable_ubus) {
+  nim_backend = "ubus"
+}
+assert(nim_backend == "fake" || nim_backend == "ubus",
+       "matter_nim_backend must be \"fake\" or \"ubus\" (\"dbus\" is reserved and not implemented yet), got \"" +
+           nim_backend + "\"")
+
 executable("matter-network-manager-app") {
   sources = [
+    "NimBackend.h",
     "include/CHIPProjectAppConfig.h",
     "main.cpp",
   ]
@@ -36,11 +52,12 @@ executable("matter-network-manager-app") {
   defines = []
   include_dirs = [ "include" ]
 
-  if (matter_enable_ubus) {
-    defines += [ "MATTER_ENABLE_UBUS=1" ]
+  if (nim_backend == "ubus") {
     sources += [
       "MatterUbusService.cpp",
       "MatterUbusService.h",
+      "NimBackendUbus.cpp",
+      "NimBackendUbus.h",
       "ThreadBROpenThreadUbus.cpp",
       "ThreadBROpenThreadUbus.h",
       "UboxUtils.cpp",
@@ -55,7 +72,10 @@ executable("matter-network-manager-app") {
       "ubus",
     ]
   } else {
-    sources += [ "ThreadBRFake.h" ]
+    sources += [
+      "NimBackendFake.cpp",
+      "ThreadBRFake.h",
+    ]
   }
 
   output_dir = root_out_dir

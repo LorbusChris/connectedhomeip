@@ -28,13 +28,7 @@
 #include <lib/support/CodeUtils.h>
 #include <lib/support/Span.h>
 
-#if MATTER_ENABLE_UBUS
-#include "MatterUbusService.h"
-#include "ThreadBROpenThreadUbus.h"
-#include "UbusManager.h"
-#else
-#include "ThreadBRFake.h"
-#endif
+#include "NimBackend.h"
 
 #include <optional>
 
@@ -42,12 +36,11 @@ using namespace chip;
 using namespace chip::app;
 using namespace chip::app::Clusters;
 
-#if MATTER_ENABLE_UBUS
-ubus::UbusManager gUbusManager{};
-MatterUbusService gMatterUbusService{ gUbusManager };
-#endif
+// Everything in this file is the same for every operating system the
+// network manager runs on; what differs lives behind NimBackend.
 
 std::optional<DefaultThreadNetworkDirectoryServer> gThreadNetworkDirectoryServer;
+
 void emberAfThreadNetworkDirectoryClusterInitCallback(EndpointId endpoint)
 {
     VerifyOrDie(!gThreadNetworkDirectoryServer);
@@ -55,6 +48,7 @@ void emberAfThreadNetworkDirectoryClusterInitCallback(EndpointId endpoint)
 }
 
 std::optional<WiFiNetworkManagementServer> gWiFiNetworkManagementServer;
+
 void emberAfWiFiNetworkManagementClusterInitCallback(EndpointId endpoint)
 {
     VerifyOrDie(!gWiFiNetworkManagementServer);
@@ -62,16 +56,12 @@ void emberAfWiFiNetworkManagementClusterInitCallback(EndpointId endpoint)
 }
 
 std::optional<ThreadBorderRouterManagement::ServerInstance> gThreadBorderRouterManagementServer;
+
 void emberAfThreadBorderRouterManagementClusterInitCallback(EndpointId endpoint)
 {
     VerifyOrDie(!gThreadBorderRouterManagementServer);
-#if MATTER_ENABLE_UBUS
-    static OpenThreadUbusBorderRouterDelegate delegate{ gUbusManager };
-#else
-    static FakeBorderRouterDelegate delegate{};
-#endif
     TEMPORARY_RETURN_IGNORED gThreadBorderRouterManagementServer
-        .emplace(endpoint, &delegate, Server::GetInstance().GetFailSafeContext())
+        .emplace(endpoint, &GetNimBackend().BorderRouterDelegate(), Server::GetInstance().GetFailSafeContext())
         .Init();
 }
 
@@ -98,27 +88,31 @@ void emberAfNetworkIdentityManagementClusterInitCallback(EndpointId endpoint)
 
 static void ApplicationEarlyInit()
 {
-#if MATTER_ENABLE_UBUS
-    SuccessOrDie(gUbusManager.Init());
-#endif
+    ChipLogProgress(AppServer, "Network manager backend: %s", GetNimBackend().Name());
+    SuccessOrDie(GetNimBackend().EarlyInit());
 }
 
 void ApplicationInit()
 {
-    TEMPORARY_RETURN_IGNORED gWiFiNetworkManagementServer->SetNetworkCredentials(ByteSpan::fromCharSpan("MatterAP"_span),
-                                                                                 ByteSpan::fromCharSpan("Setec Astronomy"_span));
-#if MATTER_ENABLE_UBUS
-    // Publish the "matter" ubus object once the server is up; its handlers
-    // read commissioning state owned by the server.
-    SuccessOrDie(gMatterUbusService.Init());
-#endif
+    // Without credentials the cluster's SSID reads null and
+    // NetworkPassphraseRequest fails with InvalidInState, which is the right
+    // answer for a node that shares nothing.
+    CHIP_ERROR err = GetNimBackend().StartWiFiCredentialSharing(*gWiFiNetworkManagementServer);
+    if (err == CHIP_ERROR_NOT_IMPLEMENTED)
+    {
+        ChipLogProgress(AppServer, "Wi-Fi credential sharing disabled");
+    }
+    else
+    {
+        SuccessOrDie(err);
+    }
+
+    SuccessOrDie(GetNimBackend().Start());
 }
 
 void ApplicationShutdown()
 {
-#if MATTER_ENABLE_UBUS
-    gUbusManager.Shutdown();
-#endif
+    GetNimBackend().Shutdown();
 }
 
 int main(int argc, char * argv[])
